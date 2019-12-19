@@ -1,0 +1,12 @@
+kind: Endpoints
+apiVersion: v1
+metadata:
+  creationTimestamp: null
+  name: external-data-service
+subsets:
+  - addresses:
+      - ip: 172.17.205.35
+    ports:
+      - port: 80
+        name: "http"
+      
