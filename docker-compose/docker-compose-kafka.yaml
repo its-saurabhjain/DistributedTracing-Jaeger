@@ -1,0 +1,120 @@
+version: "3"
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.5.1
+    networks:
+      - elastic-jaeger
+    ports:
+      - "127.0.0.1:9200:9200"
+      - "127.0.0.1:9300:9300"
+    restart: on-failure
+    environment:
+      - cluster.name=jaeger-cluster
+      - discovery.type=single-node
+      - http.host=0.0.0.0
+      - transport.host=127.0.0.1
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+  kafka:
+    image: confluentinc/cp-kafka:5.0.1
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_BROKER_ID: 1
+    restart: on-failure
+  zookeeper:
+    image: confluentinc/cp-zookeeper:5.0.1
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: "2181"
+
+  jaeger-collector:
+    image: jaegertracing/jaeger-collector
+    ports:
+      - "14269:14269"
+      - "14268:14268"
+      - "14267:14267"
+      - "9411:9411"
+    networks:
+      - elastic-jaeger
+    restart: on-failure
+    environment:
+      - SPAN_STORAGE_TYPE=kafka
+      - KAFKA_BROKERS=localhost:9092
+    command: [
+      "--kafka.producer.brokers=localhost:9092",
+      "--kafka.producer.topic=jaeger-spans",
+      "--log-level=error"
+    ]
+    depends_on:
+      - elasticsearch
+
+  jaeger-ingester:
+    image: jaegertracing/jaeger-ingester:1.8.2
+    ports:
+      # HTTP health check port: $ curl -v http://localhost:14270/
+      - "14270:14270"
+      # Metrics port: $ curl http://localhost:14271/metrics
+      - "14271:14271"
+    restart: on-failure
+    environment:
+      LOG_LEVEL: "info"
+      INGESTER_PARALLELISM: "1"
+      INGESTER_DEADLOCKINTERVAL: "0ms"
+      SPAN_STORAGE_TYPE: "elasticsearch"
+      ES_SERVER_URLS: "http://elasticsearch:9200"
+      KAFKA_BROKERS: "kafka:9092"
+      METRICS_BACKEND: "expvar"
+
+  jaeger-agent:
+    image: jaegertracing/jaeger-agent
+    hostname: jaeger-agent
+    command: ["--collector.host-port=jaeger-collector:14267"]
+    ports:
+      - "5775:5775/udp"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "5778:5778/tcp"
+    networks:
+      - elastic-jaeger
+    restart: on-failure
+    environment:
+      - SPAN_STORAGE_TYPE=kafka
+    depends_on:
+      - jaeger-collector
+
+  jaeger-query:
+    image: jaegertracing/jaeger-query
+    environment:
+      - SPAN_STORAGE_TYPE=elasticsearch
+      - no_proxy=localhost
+    ports:
+      - "16686:16686"
+      - "16687:16687"
+    networks:
+      - elastic-jaeger
+    restart: on-failure
+    command: [
+      "--es.server-urls=http://elasticsearch:9200",
+      "--span-storage.type=elasticsearch",
+      "--log-level=debug"
+    ]
+    depends_on:
+      - jaeger-agent
+
+volumes:
+  esdata:
+    driver: local
+
+networks:
+  elastic-jaeger:
+    driver: bridge 
