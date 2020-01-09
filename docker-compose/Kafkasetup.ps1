@@ -12,3 +12,12 @@ docker run --net=host --rm confluentinc/cp-kafka:5.0.1 kafka-topics --describe -
 docker run --net=host --rm confluentinc/cp-kafka:5.0.1 bash -c "seq 42 | kafka-console-producer --broker-list localhost:9092 --topic jaeger-spans && echo 'Produced 42 messages.'"
 #readback data
 docker run --net=host --rm confluentinc/cp-kafka:5.0.1 kafka-console-consumer --bootstrap-server localhost:9092 --topic jaeger-spans -from-beginning --max-messages 42
+
+docker exec -it $(docker ps -qf "name=kafka") /bin/bash
+kafka-server-stop
+kafka-server-start.sh -daemon config/server.properties
+kafka-consumer-groups --bootstrap-server kafka:9092 --describe --group jaeger-ingester
+
+kafka-console-consumer --bootstrap-server kafka:9092 --topic jaeger-spans
+
+bash -c "seq 42 | kafka-console-producer --broker-list kafka:9092 --topic jaeger-spans && echo 'Produced 42 messages.'"
